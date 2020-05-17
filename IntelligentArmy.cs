@@ -8,6 +8,7 @@ Date: 2020-05-17
 using Harmony;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
@@ -29,7 +30,7 @@ namespace IntelligentArmy
         private static Dictionary<UnitSystem.Army, Vector3> originalPos = new Dictionary<UnitSystem.Army, Vector3>();
 
         // Viking army information
-        private static Dictionary<UnitSystem.Army, int> assignedToViking = new Dictionary<UnitSystem.Army, int>();
+        private static Dictionary<IMoveTarget, int> assignedToViking = new Dictionary<IMoveTarget, int>();
 
         void Preload(KCModHelper __helper) 
         {
@@ -65,47 +66,121 @@ namespace IntelligentArmy
             return pos1Landmass == pos2Landmass;
         }
 
-        private static UnitSystem.Army GetClosestVikingSquad(Vector3 pos, float range)
+        // Refer to SiegeMonster::ClosestMonster and UnitSystem::GetClosestDamageable.
+        private static IMoveTarget GetClosestViking(Vector3 pos, float range)
         {
-            IProjectileHitable closestViking = UnitSystem.inst.GetClosestDamageable(pos, 1, range);
-            if (closestViking != null && OnSameLandmass(pos, closestViking.GetPosition()))
+            float rangeSquared = range * range;
+            float currentClosestDistance = float.MaxValue;
+            float currentLowestAssigned = float.MaxValue;
+            IMoveTarget closestViking = null;
+
+            foreach (IMoveTarget viking in assignedToViking.Keys)
             {
-                if (closestViking is UnitSystem.Unit)
+                UnitSystem.Army army = viking as UnitSystem.Army;
+                SiegeMonster ogre = viking as SiegeMonster;
+                if ((army == null && ogre == null) ||
+                    (army != null && (army.IsInvalid() || !OnSameLandmass(pos, army.GetPos()))) ||
+                    (ogre != null && (ogre.IsInvalid() || !OnSameLandmass(pos, ogre.GetPos()))))
                 {
-                    return (closestViking as UnitSystem.Unit).army;
+                    continue;
                 }
-                else if (closestViking is UnitSystem.Army)
+
+                // Select the closest viking army or ogre with the lowest number of assigned allied army for more even
+                // distribution. Avoids an entire army attacking a single viking army, in theory.
+                int assigned = assignedToViking[viking];
+                float distanceSquared = Mathff.DistSqrdXZ(pos, viking.GetPos());
+                if (distanceSquared > rangeSquared)
                 {
-                    return closestViking as UnitSystem.Army;
+                    continue;
+                }
+                if ((assigned < currentLowestAssigned) ||
+                    (assigned == currentLowestAssigned && distanceSquared < currentClosestDistance))
+                {
+                    closestViking = viking;
+                    currentClosestDistance = distanceSquared;
+                    currentLowestAssigned = assigned;
                 }
             }
-            return null;
+            
+            if (closestViking != null)
+            {
+                assignedToViking[closestViking] += 1;
+            }
+            return closestViking;
         }
 
-        private static IMoveTarget GetClosestTarget(Vector3 pos)
+        private static IMoveTarget GetClosestTarget(Vector3 pos, float range)
         {
-            SiegeMonster closestOgre = SiegeMonster.ClosestMonster(pos);
-            if (closestOgre != null && OnSameLandmass(pos, closestOgre.GetPos()))
-            {
-                return closestOgre;
-            }
-            UnitSystem.Army closestViking = GetClosestVikingSquad(pos, 10f);
+            IMoveTarget closestViking = GetClosestViking(pos, range);
             if (closestViking != null)
             {
                 return closestViking;
             }
-            IProjectileHitable closestWolf = WolfDen.ClosestWolf(pos);
-            if (closestWolf != null && OnSameLandmass(pos, closestWolf.GetPosition()))
-            {
-                Cell wolfDenCell = World.inst.GetCellData(closestWolf.GetPosition());
-                return wolfDenCell;
-            }
             return null;
         }
 
-        private static IMoveTarget GetClosestTarget(UnitSystem.Army army)
+        private static IMoveTarget GetClosestTarget(UnitSystem.Army army, float range)
         {
-            return GetClosestTarget(army.GetPos());
+            return GetClosestTarget(army.GetPos(), range);
+        }
+
+        private static void AssignTargetToArmyAndMove(UnitSystem.Army army, float range)
+        {
+            // The goal of each army is to patrol an area of radius 10 from its starting point, or its current position
+            // if there are no enemies within its patrol radius.
+            IMoveTarget target = null;
+            if (originalPos.ContainsKey(army))
+            {
+                target = GetClosestTarget(originalPos[army], range);
+            }
+            if (target == null)
+            {
+                target = GetClosestTarget(army, range);
+            }
+
+            if (target != null && !originalPos.ContainsKey(army))
+            {
+                originalPos[army] = army.GetPos();
+            }
+            else if (target == null && originalPos.ContainsKey(army))
+            {
+                // If there are no more targets, return the army to its original position.
+                target = World.inst.GetCellData(originalPos[army]);
+                originalPos.Remove(army);
+            }
+
+            if (target != null)
+            {
+                OrdersManager.inst.MoveTo(army, target);
+            }
+        }
+        
+        // Reassigns all allied soldiers on the given IMoveTarget's current location's landmass. Useful for events such
+        // as specific enemy units arriving on a specific landmass. If IMoveTarget is null, all allied soldiers on all
+        // landmasses are reassigned.
+        private static void ReassignAllArmyOnMoveTargetLandmass(IMoveTarget unit = null)
+        {
+            int armiesCount = UnitSystem.inst.ArmyCount();
+
+            foreach (IMoveTarget viking in assignedToViking.Keys.ToList())
+            {
+                if (unit == null || OnSameLandmass(unit.GetPos(), viking.GetPos()))
+                {
+                    assignedToViking[viking] = 0;
+                }
+            }
+
+            for (int i = 0; i < armiesCount; i++)
+            {
+                UnitSystem.Army army = UnitSystem.inst.GetAmry(i);
+                Vector3 armyPos = army.GetPos();
+
+                if (army.TeamID() == 0 && army.armyType == UnitSystem.ArmyType.Default && !army.IsInvalid() 
+                    && (unit == null || OnSameLandmass(armyPos, unit.GetPos())))
+                {
+                    AssignTargetToArmyAndMove(army, 10f);
+                }
+            }
         }
 
         [HarmonyPatch(typeof(General), "Tick")]
@@ -122,46 +197,78 @@ namespace IntelligentArmy
 
                     if (!__instance.army.moving && ArmyIdle(__instance.army))
                     {
-                        // The goal of each army is to patrol an area of radius 5 from its starting point.
-                        IMoveTarget target = null;
-                        if (originalPos.ContainsKey(__instance.army))
-                        {
-                            target = GetClosestTarget(originalPos[__instance.army]);
-                        }
-                        else
-                        {
-                            target = GetClosestTarget(__instance.army);
-                        }
-
-                        if (target != null && !originalPos.ContainsKey(__instance.army))
-                        {
-                            originalPos[__instance.army] = __instance.army.GetPos();
-                        }
-                        else if (target == null && originalPos.ContainsKey(__instance.army))
-                        {
-                            // If there are no more targets, return the army to its original position.
-                            target = World.inst.GetCellData(originalPos[__instance.army]);
-                            originalPos.Remove(__instance.army);
-                        }
-
-                        if (target != null)
-                        {
-                            OrdersManager.inst.MoveTo(__instance.army, target);
-                        }
+                        AssignTargetToArmyAndMove(__instance.army, 10f);
                     }
                 }
                 catch {}
             }
         }
 
+        [HarmonyPatch(typeof(RaiderSystem), "OnOgreArrived")]
+        public static class ReassignOnOgreArrivalPatch
+        {
+            public static void Postfix(IMoveableUnit unit)
+            {
+                // When an ogre arrives, redistribute all the allied soldiers.
+                SiegeMonster ogre = unit as SiegeMonster;
+                if (unit == null)
+                {
+                    return;
+                }
+                ReassignAllArmyOnMoveTargetLandmass(ogre);
+            }
+        }
+
+        [HarmonyPatch(typeof(RaiderSystem), "SpawnOgre")]
+        public static class TrackOgrePatch
+        {
+            public static void Postfix(IMoveableUnit __result)
+            {
+                SiegeMonster ogre = __result as SiegeMonster;
+                if (ogre != null && !assignedToViking.ContainsKey(ogre))
+                {
+                    assignedToViking[ogre] = 0;
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(RaiderSystem), "SpawnArmy")]
+        public static class TrackVikingArmyPatch
+        {
+            public static void Postfix(IMoveableUnit __result)
+            {
+                UnitSystem.Army army = __result as UnitSystem.Army;
+                if (army != null && !assignedToViking.ContainsKey(army))
+                {
+                    assignedToViking[army] = 0;
+                }
+            }
+        }
+
         [HarmonyPatch(typeof(UnitSystem), "ReleaseArmy")]
-        public static class RemoveArmyFromModStatePatch
+        public static class UntrackArmyPatch
         {
             public static void Prefix(UnitSystem.Army army)
             {
                 if (originalPos.ContainsKey(army))
                 {
                     originalPos.Remove(army);
+                }
+                if (assignedToViking.ContainsKey(army))
+                {
+                    assignedToViking.Remove(army);
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(SiegeMonster), "DestroyUnit")]
+        public static class UntrackOgrePatch
+        {
+            public static void Prefix(SiegeMonster __instance)
+            {
+                if (assignedToViking.ContainsKey(__instance))
+                {
+                    assignedToViking.Remove(__instance);
                 }
             }
         }
