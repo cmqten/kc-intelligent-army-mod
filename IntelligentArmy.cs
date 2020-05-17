@@ -116,12 +116,15 @@ namespace IntelligentArmy
                 // distribution. Avoids an entire army attacking a single viking army, in theory.
                 int assigned = assignedToViking[viking];
                 float distanceSquared = Mathff.DistSqrdXZ(pos, viking.GetPos());
-                if (distanceSquared > rangeSquared)
+
+                if (distanceSquared > rangeSquared || assigned > currentLowestAssigned)
                 {
                     continue;
                 }
-                if ((assigned < currentLowestAssigned) ||
-                    (assigned == currentLowestAssigned && distanceSquared < currentClosestDistance))
+
+                // ogre != null gives ogres priority by disregarding their distance compared to the current closest.
+                if (closestViking == null || ogre != null ||
+                    (closestViking is UnitSystem.Army && army != null && distanceSquared < currentClosestDistance))
                 {
                     closestViking = viking;
                     currentClosestDistance = distanceSquared;
