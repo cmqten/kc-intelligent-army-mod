@@ -67,7 +67,7 @@ namespace IntelligentArmy
             {
                 return closestOgre;
             }
-            IProjectileHitable closestViking = UnitSystem.inst.GetClosestDamageable(pos, 1, 5f);
+            IProjectileHitable closestViking = UnitSystem.inst.GetClosestDamageable(pos, 1, 10f);
             if (closestViking != null && OnSameLandmass(pos, closestViking.GetPosition()))
             {
                 if (closestViking is UnitSystem.Unit)
