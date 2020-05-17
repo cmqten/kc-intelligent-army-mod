@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace IntelligentArmy
 {
-    public class ModMain : MonoBehaviour 
+    public class ModMain : Tickable
     {
         private const string authorName = "cmjten10";
         private const string modName = "Intelligent Army";
@@ -25,6 +25,9 @@ namespace IntelligentArmy
         // Logging
         public static KCModHelper helper;
         private static UInt64 logId = 0;
+
+        // Timer
+        private static Timer timer = new Timer(1f);
 
         // Allied army information
         private static Dictionary<UnitSystem.Army, Vector3> originalPos = new Dictionary<UnitSystem.Army, Vector3>();
@@ -39,13 +42,25 @@ namespace IntelligentArmy
             harmony.PatchAll(Assembly.GetExecutingAssembly());
         }
 
+        public override void Tick(float dt)
+        {
+            base.Tick(dt);
+
+            // Reassign all soldiers every second.
+            // Refer to Cemetery::Tick.
+            if (timer == null || !timer.Update(dt))
+            {
+                return;
+            }
+            ReassignAllArmyOnMoveTargetLandmass();
+        }
+
         // Logger in the log box in game.
         private static void LogInGame(string message, KingdomLog.LogStatus status = KingdomLog.LogStatus.Neutral)
         {
             KingdomLog.TryLog($"{modId}-{logId}", message, status);
             logId++; 
         }
-
 
         private static bool ArmyIdle(UnitSystem.Army army)
         {
@@ -57,6 +72,18 @@ namespace IntelligentArmy
                 }
             }
             return true;
+        }
+
+        private static bool ArmyAttacking(UnitSystem.Army army)
+        {
+            for (int i = 0; i < army.units.Count; i++)
+            {
+                if (army.units.data[i].status != UnitSystem.Unit.Status.Attacking)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static bool OnSameLandmass(Vector3 pos1, Vector3 pos2)
@@ -100,11 +127,6 @@ namespace IntelligentArmy
                     currentClosestDistance = distanceSquared;
                     currentLowestAssigned = assigned;
                 }
-            }
-            
-            if (closestViking != null)
-            {
-                assignedToViking[closestViking] += 1;
             }
             return closestViking;
         }
@@ -151,6 +173,14 @@ namespace IntelligentArmy
 
             if (target != null)
             {
+                if (target is SiegeMonster)
+                {
+                    assignedToViking[target] += 1;
+                }
+                else if (target is UnitSystem.Army)
+                {
+                    assignedToViking[target] += 2;
+                }
                 OrdersManager.inst.MoveTo(army, target);
             }
         }
@@ -175,12 +205,21 @@ namespace IntelligentArmy
                 UnitSystem.Army army = UnitSystem.inst.GetAmry(i);
                 Vector3 armyPos = army.GetPos();
 
-                if (army.TeamID() == 0 && army.armyType == UnitSystem.ArmyType.Default && !army.IsInvalid() 
-                    && (unit == null || OnSameLandmass(armyPos, unit.GetPos())))
+                bool alliedSoldier = army.TeamID() == 0 && army.armyType == UnitSystem.ArmyType.Default;
+                bool valid = !army.IsInvalid();
+                bool idle = !army.moving && !ArmyAttacking(army);
+
+                if (alliedSoldier && valid && idle && (unit == null || OnSameLandmass(armyPos, unit.GetPos())))
                 {
                     AssignTargetToArmyAndMove(army, 10f);
                 }
             }
+        }
+
+        private static void ResetModState()
+        {
+            originalPos.Clear();
+            assignedToViking.Clear();
         }
 
         [HarmonyPatch(typeof(General), "Tick")]
@@ -203,7 +242,9 @@ namespace IntelligentArmy
                 catch {}
             }
         }
-
+        
+        // TODO: Evaluate further if really needed.
+        /*
         [HarmonyPatch(typeof(RaiderSystem), "OnOgreArrived")]
         public static class ReassignOnOgreArrivalPatch
         {
@@ -218,6 +259,7 @@ namespace IntelligentArmy
                 ReassignAllArmyOnMoveTargetLandmass(ogre);
             }
         }
+        */
 
         [HarmonyPatch(typeof(RaiderSystem), "SpawnOgre")]
         public static class TrackOgrePatch
@@ -270,6 +312,15 @@ namespace IntelligentArmy
                 {
                     assignedToViking.Remove(__instance);
                 }
+            }
+        }
+
+        [HarmonyPatch(typeof(Player), "Reset")]
+        public static class ResetModStatePatch
+        {
+            public static void Postfix()
+            {
+                ResetModState();
             }
         }
     }
