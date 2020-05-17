@@ -25,7 +25,11 @@ namespace IntelligentArmy
         public static KCModHelper helper;
         private static UInt64 logId = 0;
 
+        // Allied army information
         private static Dictionary<UnitSystem.Army, Vector3> originalPos = new Dictionary<UnitSystem.Army, Vector3>();
+
+        // Viking army information
+        private static Dictionary<UnitSystem.Army, int> assignedToViking = new Dictionary<UnitSystem.Army, int>();
 
         void Preload(KCModHelper __helper) 
         {
@@ -41,12 +45,6 @@ namespace IntelligentArmy
             logId++; 
         }
 
-        private static bool OnSameLandmass(Vector3 pos1, Vector3 pos2)
-        {
-            int pos1Landmass = World.inst.GetCellData(pos1).landMassIdx;
-            int pos2Landmass = World.inst.GetCellData(pos2).landMassIdx;
-            return pos1Landmass == pos2Landmass;
-        }
 
         private static bool ArmyIdle(UnitSystem.Army army)
         {
@@ -60,14 +58,16 @@ namespace IntelligentArmy
             return true;
         }
 
-        private static IMoveTarget GetClosestTarget(Vector3 pos)
+        private static bool OnSameLandmass(Vector3 pos1, Vector3 pos2)
         {
-            SiegeMonster closestOgre = SiegeMonster.ClosestMonster(pos);
-            if (closestOgre != null && OnSameLandmass(pos, closestOgre.GetPos()))
-            {
-                return closestOgre;
-            }
-            IProjectileHitable closestViking = UnitSystem.inst.GetClosestDamageable(pos, 1, 10f);
+            int pos1Landmass = World.inst.GetCellData(pos1).landMassIdx;
+            int pos2Landmass = World.inst.GetCellData(pos2).landMassIdx;
+            return pos1Landmass == pos2Landmass;
+        }
+
+        private static UnitSystem.Army GetClosestVikingSquad(Vector3 pos, float range)
+        {
+            IProjectileHitable closestViking = UnitSystem.inst.GetClosestDamageable(pos, 1, range);
             if (closestViking != null && OnSameLandmass(pos, closestViking.GetPosition()))
             {
                 if (closestViking is UnitSystem.Unit)
@@ -78,7 +78,21 @@ namespace IntelligentArmy
                 {
                     return closestViking as UnitSystem.Army;
                 }
-                return null;
+            }
+            return null;
+        }
+
+        private static IMoveTarget GetClosestTarget(Vector3 pos)
+        {
+            SiegeMonster closestOgre = SiegeMonster.ClosestMonster(pos);
+            if (closestOgre != null && OnSameLandmass(pos, closestOgre.GetPos()))
+            {
+                return closestOgre;
+            }
+            UnitSystem.Army closestViking = GetClosestVikingSquad(pos, 10f);
+            if (closestViking != null)
+            {
+                return closestViking;
             }
             IProjectileHitable closestWolf = WolfDen.ClosestWolf(pos);
             if (closestWolf != null && OnSameLandmass(pos, closestWolf.GetPosition()))
