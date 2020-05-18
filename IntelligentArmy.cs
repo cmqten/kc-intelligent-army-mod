@@ -218,7 +218,12 @@ namespace IntelligentArmy
 
             if (target == null)
             {
-                // If there are no more targets, return the soldier squad to its original position.
+                // If there are no more targets, return the soldier squad to its original position if it's not already
+                // there.
+                if (originalPos[army] == army.GetPos())
+                {
+                    return;
+                }
                 target = World.inst.GetCellData(originalPos[army]);
             }
             else
