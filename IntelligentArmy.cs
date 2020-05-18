@@ -54,11 +54,11 @@ namespace IntelligentArmy
             {
                 return;
             }
-            LogInGame($"{originalPos.Count} - {assignedToViking.Count}");
+
             // Reassign all soldiers every second.
             if (VikingInvasion())
             {
-                ReassignAllArmy();
+                TryReassignAllArmy();
             }
         }
 
@@ -93,9 +93,10 @@ namespace IntelligentArmy
             return assignedToViking.Count > 0;
         }
 
-        // Refer to SiegeMonster::ClosestMonster and UnitSystem::GetClosestDamageable.
+        // Get the closest viking unit that also has the fewest number of assigned soldiers.
         private static IMoveTarget GetClosestViking(Vector3 pos, float range)
         {
+            // Refer to SiegeMonster::ClosestMonster and UnitSystem::GetClosestDamageable.
             float rangeSquared = range * range;
             float currentClosestDistance = float.MaxValue;
             float currentLowestAssigned = float.MaxValue;
@@ -191,8 +192,8 @@ namespace IntelligentArmy
             OrdersManager.inst.MoveTo(army, target);
         }
         
-        // Reassigns some allied soldiers.
-        private static void ReassignAllArmy()
+        // Reassigns some allied soldiers in order to redistribute them.
+        private static void TryReassignAllArmy()
         {
             int armiesCount = UnitSystem.inst.ArmyCount();
 
