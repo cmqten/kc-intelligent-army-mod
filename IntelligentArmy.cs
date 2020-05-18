@@ -11,6 +11,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using Zat.Shared.ModMenu.API;
+using Zat.Shared.ModMenu.Interactive;
 
 namespace IntelligentArmy
 {
@@ -28,11 +30,14 @@ namespace IntelligentArmy
         public static KCModHelper helper;
         private static UInt64 logId = 0;
 
+        // Settings
+        public static ModSettingsProxy proxy;
+        public static IntelligentArmySettings settings;
+
         // Timer
         private static Timer timer = new Timer(1f);
 
         // Allied army information
-        private static float patrolRadius = 10f;
         private static Dictionary<UnitSystem.Army, Vector3> originalPos = new Dictionary<UnitSystem.Army, Vector3>();
 
         // Viking information
@@ -45,22 +50,28 @@ namespace IntelligentArmy
             harmony.PatchAll(Assembly.GetExecutingAssembly());
         }
 
-        public override void Tick(float dt)
+        void SceneLoaded(KCModHelper __helper)
         {
-            base.Tick(dt);
-
-            // Refer to Cemetery::Tick.
-            if (timer == null || !timer.Update(dt))
+            if (!proxy)
             {
-                return;
-            }
-
-            // Reassign all soldiers every second.
-            if (VikingInvasion())
-            {
-                TryReassignAllArmy();
+                var config = new InteractiveConfiguration<IntelligentArmySettings>();
+                settings = config.Settings;
+                ModSettingsBootstrapper.Register(config.ModConfig, (_proxy, saved) =>
+                {
+                    config.Install(_proxy, saved);
+                    proxy = _proxy;
+                    settings.Setup();
+                }, (ex) =>
+                {
+                    helper.Log($"ERROR: Failed to register proxy for {modName} Mod config: {ex.Message}");
+                    helper.Log(ex.StackTrace);
+                });
             }
         }
+
+        // =====================================================================
+        // Utility Functions
+        // =====================================================================
 
         // Logger in the log box in game.
         private static void LogInGame(string message, KingdomLog.LogStatus status = KingdomLog.LogStatus.Neutral)
@@ -217,7 +228,7 @@ namespace IntelligentArmy
                     {
                         assignedToViking[currentTarget] -= 1;
                     }
-                    AssignTargetToArmyAndMove(army, patrolRadius);
+                    AssignTargetToArmyAndMove(army, settings.patrolRadius.Value);
                 }
             }
         }
@@ -228,12 +239,37 @@ namespace IntelligentArmy
             assignedToViking.Clear();
         }
 
+        // =====================================================================
+        // Patches
+        // =====================================================================
+
+        public override void Tick(float dt)
+        {
+            base.Tick(dt);
+
+            // Refer to Cemetery::Tick.
+            if (timer == null || !timer.Update(dt))
+            {
+                return;
+            }
+            // Reassign all soldiers every second.
+            if (VikingInvasion() && settings.enabled.Value)
+            {
+                TryReassignAllArmy();
+            }
+        }
+
         // General::Tick patch for assigning a target.
         [HarmonyPatch(typeof(General), "Tick")]
         public static class FindTargetPatch
         {
             public static void Postfix(General __instance)
             {
+                if (!settings.enabled.Value)
+                {
+                    return;
+                }
+
                 UnitSystem.Army army = __instance.army;
 
                 if (VikingInvasion())
@@ -253,7 +289,7 @@ namespace IntelligentArmy
                                 // can be returned at the end.
                                 originalPos[army] = army.GetPos();
                             }
-                            AssignTargetToArmyAndMove(army, patrolRadius);
+                            AssignTargetToArmyAndMove(army, settings.patrolRadius.Value);
                         }
                     }
                     catch {}
@@ -301,7 +337,7 @@ namespace IntelligentArmy
             }
         }
 
-        // Patch for tracking viking and soldier squad on spawn.
+        // Patch for tracking viking on spawn.
         [HarmonyPatch(typeof(RaiderSystem), "SpawnArmy")]
         public static class TrackVikingArmyPatch
         {
@@ -315,7 +351,7 @@ namespace IntelligentArmy
             }
         }
 
-        // Patch for untracking viking squad on despawn.
+        // Patch for untracking viking and soldier squad on despawn.
         [HarmonyPatch(typeof(UnitSystem), "ReleaseArmy")]
         public static class UntrackArmyPatch
         {
@@ -339,6 +375,36 @@ namespace IntelligentArmy
             public static void Postfix()
             {
                 ResetModState();
+            }
+        }
+
+        // =====================================================================
+        // Settings
+        // =====================================================================
+
+        [Mod(modName, version, authorName)]
+        public class IntelligentArmySettings
+        {
+            [Setting("Enabled", "Use AI to control your soldier squads.")]
+            [Toggle(true, "")]
+            public InteractiveToggleSetting enabled { get; private set; }
+
+            [Setting("Patrol Radius", "Patrol radius of each soldier squad from its original position.")]
+            [Slider(0, 50, 10, "10", true)]
+            public InteractiveSliderSetting patrolRadius { get; private set; }
+
+            public void Setup()
+            {
+                enabled.OnUpdate.AddListener((setting) =>
+                {
+                    // Don't clear assignedToViking because in the case where the mod is deactivated, then activated
+                    // during a viking invasion, no vikings will be tracked, so the soldier squads will not move.
+                    originalPos.Clear();
+                });
+                patrolRadius.OnUpdate.AddListener((setting) =>
+                {
+                    patrolRadius.Label = ((int)setting.slider.value).ToString();
+                });
             }
         }
     }
