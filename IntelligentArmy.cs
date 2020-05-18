@@ -41,6 +41,8 @@ namespace IntelligentArmy
         private static Dictionary<UnitSystem.Army, Vector3> originalPos = new Dictionary<UnitSystem.Army, Vector3>();
 
         // Viking information
+        private const int ogreAssignPoints = 1;
+        private const int vikingSquadAssignPoints = 2;
         private static Dictionary<IMoveTarget, int> assignedToViking = new Dictionary<IMoveTarget, int>();
 
         void Preload(KCModHelper __helper) 
@@ -193,11 +195,11 @@ namespace IntelligentArmy
                 // to it.
                 if (target is SiegeMonster)
                 {
-                    assignedToViking[target] += 1;
+                    assignedToViking[target] += ogreAssignPoints;
                 }
                 else if (target is UnitSystem.Army)
                 {
-                    assignedToViking[target] += 2;
+                    assignedToViking[target] += vikingSquadAssignPoints;
                 }
             }
             OrdersManager.inst.MoveTo(army, target);
@@ -226,7 +228,7 @@ namespace IntelligentArmy
                     IMoveTarget currentTarget = army.moveTarget;
                     if (currentTarget != null && assignedToViking.ContainsKey(currentTarget))
                     {
-                        assignedToViking[currentTarget] -= 1;
+                        assignedToViking[currentTarget] -= vikingSquadAssignPoints;
                     }
                     AssignTargetToArmyAndMove(army, settings.patrolRadius.Value);
                 }
@@ -359,6 +361,18 @@ namespace IntelligentArmy
             {
                 if (originalPos.ContainsKey(army))
                 {
+                    IMoveTarget target = army.moveTarget;
+                    if (target != null && assignedToViking.ContainsKey(target))
+                    {
+                        if (target is SiegeMonster)
+                        {
+                            assignedToViking[target] -= ogreAssignPoints;
+                        }
+                        else if (target is UnitSystem.Army)
+                        {
+                            assignedToViking[target] -= vikingSquadAssignPoints;
+                        }
+                    }
                     originalPos.Remove(army);
                 }
                 if (assignedToViking.ContainsKey(army))
@@ -397,9 +411,14 @@ namespace IntelligentArmy
             {
                 enabled.OnUpdate.AddListener((setting) =>
                 {
+                    originalPos.Clear();
+
                     // Don't clear assignedToViking because in the case where the mod is deactivated, then activated
                     // during a viking invasion, no vikings will be tracked, so the soldier squads will not move.
-                    originalPos.Clear();
+                    foreach (IMoveTarget viking in assignedToViking.Keys.ToList())
+                    {
+                        assignedToViking[viking] = 0;
+                    }
                 });
                 patrolRadius.OnUpdate.AddListener((setting) =>
                 {
