@@ -5,4 +5,4 @@
 Automatically assigns targets to allied soldier squads.
 
 ## Steam Workshop
-[Intelligent Army v1]()
+[Intelligent Army](https://steamcommunity.com/sharedfiles/filedetails/?id=2101039122)
