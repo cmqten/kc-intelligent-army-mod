@@ -49,13 +49,17 @@ namespace IntelligentArmy
         {
             base.Tick(dt);
 
-            // Reassign all soldiers every second.
             // Refer to Cemetery::Tick.
             if (timer == null || !timer.Update(dt))
             {
                 return;
             }
-            ReassignAllArmy();
+            LogInGame($"{originalPos.Count} - {assignedToViking.Count}");
+            // Reassign all soldiers every second.
+            if (VikingInvasion())
+            {
+                ReassignAllArmy();
+            }
         }
 
         // Logger in the log box in game.
@@ -82,6 +86,11 @@ namespace IntelligentArmy
             int pos1Landmass = World.inst.GetCellData(pos1).landMassIdx;
             int pos2Landmass = World.inst.GetCellData(pos2).landMassIdx;
             return pos1Landmass == pos2Landmass;
+        }
+
+        private static bool VikingInvasion()
+        {
+            return assignedToViking.Count > 0;
         }
 
         // Refer to SiegeMonster::ClosestMonster and UnitSystem::GetClosestDamageable.
@@ -137,18 +146,16 @@ namespace IntelligentArmy
 
         private static void AssignTargetToArmyAndMove(UnitSystem.Army army, float range)
         {
-            // Soldiers will patrol a radius around its starting point specified by range.
-            IMoveTarget target = null;
-            if (originalPos.ContainsKey(army))
+            if (!originalPos.ContainsKey(army))
             {
-                target = GetClosestTarget(originalPos[army], range);
-            }
-            else
-            {
-                target = GetClosestTarget(army.GetPos(), range);
+                return;
             }
 
-            if (target == null && originalPos.ContainsKey(army))
+            // Soldiers will patrol a radius around its starting point specified by range.
+            IMoveTarget target = null;
+            target = GetClosestTarget(originalPos[army], range);
+
+            if (target == null)
             {
                 // If there are no targets within the soldier squads's patrol range, it will try to help out in a radius
                 // half of specified range from its current position, as long as it is still within 1.5x its patrol 
@@ -163,18 +170,12 @@ namespace IntelligentArmy
                 }
             }
 
-            if (target != null && !originalPos.ContainsKey(army))
-            {
-                originalPos[army] = army.GetPos();
-            }
-            else if (target == null && originalPos.ContainsKey(army))
+            if (target == null)
             {
                 // If there are no more targets, return the soldier squad to its original position.
                 target = World.inst.GetCellData(originalPos[army]);
-                originalPos.Remove(army);
             }
-
-            if (target != null)
+            else
             {
                 // By adding a smaller number to every assignment to an ogre, the mod will try to assign more soldiers
                 // to it.
@@ -186,8 +187,8 @@ namespace IntelligentArmy
                 {
                     assignedToViking[target] += 2;
                 }
-                OrdersManager.inst.MoveTo(army, target);
             }
+            OrdersManager.inst.MoveTo(army, target);
         }
         
         // Reassigns some allied soldiers.
@@ -204,11 +205,9 @@ namespace IntelligentArmy
                 bool valid = !army.IsInvalid();
                 bool idle = !army.moving && ArmyIdle(army);
 
-                // 20% chance of being reassigned regardless of idle or not, if target is not an ogre and soldier squad 
-                // is not returning to original position.
+                // 20% chance of being reassigned regardless of idle or not if target is not an ogre.
                 bool targetIsOgre = (army.moveTarget != null) && (army.moveTarget is SiegeMonster);
-                bool returning = !originalPos.ContainsKey(army);
-                bool forceReassign = (random.Next(0, 100) < 20) && !targetIsOgre && !returning;
+                bool forceReassign = (random.Next(0, 100) < 20) && !targetIsOgre;
 
                 if (alliedSoldier && valid && (idle || forceReassign))
                 {
@@ -234,19 +233,43 @@ namespace IntelligentArmy
         {
             public static void Postfix(General __instance)
             {
-                try
-                {
-                    if (__instance.army.TeamID() != 0 || __instance.army.armyType != UnitSystem.ArmyType.Default)
-                    {
-                        return;
-                    }
+                UnitSystem.Army army = __instance.army;
 
-                    if (!__instance.army.moving && ArmyIdle(__instance.army))
+                if (VikingInvasion())
+                {
+                    try
                     {
-                        AssignTargetToArmyAndMove(__instance.army, patrolRadius);
+                        if (army.TeamID() != 0 || army.armyType != UnitSystem.ArmyType.Default)
+                        {
+                            return;
+                        }
+
+                        if (!army.moving && ArmyIdle(army))
+                        {
+                            if (!originalPos.ContainsKey(army))
+                            {
+                                // At the beginning of an invasion, record the soldier squad's original position so it
+                                // can be returned at the end.
+                                originalPos[army] = army.GetPos();
+                            }
+                            AssignTargetToArmyAndMove(army, patrolRadius);
+                        }
+                    }
+                    catch {}
+                }
+                else
+                {
+                    if (originalPos.ContainsKey(army))
+                    {
+                        // At the end of a viking invasion, move all soldiers back to their original position.
+                        IMoveTarget target = World.inst.GetCellData(originalPos[army]);
+                        if (target != null)
+                        {
+                            OrdersManager.inst.MoveTo(army, target);
+                        }
+                        originalPos.Remove(army);
                     }
                 }
-                catch {}
             }
         }
 
