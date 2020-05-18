@@ -19,7 +19,7 @@ namespace IntelligentArmy
         private const string authorName = "cmjten10";
         private const string modName = "Intelligent Army";
         private const string modNameNoSpace = "IntelligentArmy";
-        private const string version = "v0";
+        private const string version = "v1";
         private static string modId = $"{authorName}.{modNameNoSpace}";
 
         private static System.Random random = new System.Random();
