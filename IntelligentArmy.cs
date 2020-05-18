@@ -2,7 +2,7 @@
 Automatically assigns targets to allied soldier squads.
 
 Author: cmjten10
-Mod Version: 0
+Mod Version: 1
 Date: 2020-05-17
 */
 using Harmony;
@@ -22,6 +22,8 @@ namespace IntelligentArmy
         private const string version = "v0";
         private static string modId = $"{authorName}.{modNameNoSpace}";
 
+        private static System.Random random = new System.Random();
+
         // Logging
         public static KCModHelper helper;
         private static UInt64 logId = 0;
@@ -33,7 +35,7 @@ namespace IntelligentArmy
         private static float patrolRadius = 10f;
         private static Dictionary<UnitSystem.Army, Vector3> originalPos = new Dictionary<UnitSystem.Army, Vector3>();
 
-        // Viking army information
+        // Viking information
         private static Dictionary<IMoveTarget, int> assignedToViking = new Dictionary<IMoveTarget, int>();
 
         void Preload(KCModHelper __helper) 
@@ -53,7 +55,7 @@ namespace IntelligentArmy
             {
                 return;
             }
-            ReassignAllArmyOnMoveTargetLandmass();
+            ReassignAllArmy();
         }
 
         // Logger in the log box in game.
@@ -73,18 +75,6 @@ namespace IntelligentArmy
                 }
             }
             return true;
-        }
-
-        private static bool ArmyAttacking(UnitSystem.Army army)
-        {
-            for (int i = 0; i < army.units.Count; i++)
-            {
-                if (army.units.data[i].status != UnitSystem.Unit.Status.Attacking)
-                {
-                    return true;
-                }
-            }
-            return false;
         }
 
         private static bool OnSameLandmass(Vector3 pos1, Vector3 pos2)
@@ -113,8 +103,8 @@ namespace IntelligentArmy
                     continue;
                 }
 
-                // Select the closest viking army or ogre with the lowest number of assigned allied army for more even
-                // distribution. Avoids an entire army attacking a single viking army, in theory.
+                // Select the closest viking squad or ogre with the lowest number of assigned allied soldiers for more 
+                // even distribution. Avoids an entire army attacking a single viking squad, in theory.
                 int assigned = assignedToViking[viking];
                 float distanceSquared = Mathff.DistSqrdXZ(pos, viking.GetPos());
 
@@ -145,11 +135,6 @@ namespace IntelligentArmy
             return null;
         }
 
-        private static IMoveTarget GetClosestTarget(UnitSystem.Army army, float range)
-        {
-            return GetClosestTarget(army.GetPos(), range);
-        }
-
         private static void AssignTargetToArmyAndMove(UnitSystem.Army army, float range)
         {
             // Soldiers will patrol a radius around its starting point specified by range.
@@ -158,15 +143,19 @@ namespace IntelligentArmy
             {
                 target = GetClosestTarget(originalPos[army], range);
             }
+            else
+            {
+                target = GetClosestTarget(army.GetPos(), range);
+            }
 
             if (target == null && originalPos.ContainsKey(army))
             {
-                // If there are no targets within the soldier's patrol range, it will try to help out in a radius half
-                // of specified range from its current position, as long as the soldier is still within 1.5x its patrol 
-                // radius. Of course, this doesn't work if the soldier is standing at its original position.
-                if (Mathff.DistSqrdXZ(army.GetPos(), originalPos[army]) < range * 1.5f)
+                // If there are no targets within the soldier squads's patrol range, it will try to help out in a radius
+                // half of specified range from its current position, as long as it is still within 1.5x its patrol 
+                // radius. Of course, this doesn't work if the soldier squad is standing at its original position.
+                if (Mathff.DistSqrdXZ(army.GetPos(), originalPos[army]) < range * range * 1.5f * 1.5f)
                 {
-                    target = GetClosestTarget(army, range * 0.5f);
+                    target = GetClosestTarget(army.GetPos(), range * 0.5f);
                 }
                 else
                 {
@@ -180,13 +169,15 @@ namespace IntelligentArmy
             }
             else if (target == null && originalPos.ContainsKey(army))
             {
-                // If there are no more targets, return the army to its original position.
+                // If there are no more targets, return the soldier squad to its original position.
                 target = World.inst.GetCellData(originalPos[army]);
                 originalPos.Remove(army);
             }
 
             if (target != null)
             {
+                // By adding a smaller number to every assignment to an ogre, the mod will try to assign more soldiers
+                // to it.
                 if (target is SiegeMonster)
                 {
                     assignedToViking[target] += 1;
@@ -199,20 +190,10 @@ namespace IntelligentArmy
             }
         }
         
-        // Reassigns all allied soldiers on the given IMoveTarget's current location's landmass. Useful for events such
-        // as specific enemy units arriving on a specific landmass. If IMoveTarget is null, all allied soldiers on all
-        // landmasses are reassigned.
-        private static void ReassignAllArmyOnMoveTargetLandmass(IMoveTarget unit = null)
+        // Reassigns some allied soldiers.
+        private static void ReassignAllArmy()
         {
             int armiesCount = UnitSystem.inst.ArmyCount();
-
-            foreach (IMoveTarget viking in assignedToViking.Keys.ToList())
-            {
-                if (unit == null || OnSameLandmass(unit.GetPos(), viking.GetPos()))
-                {
-                    assignedToViking[viking] = 0;
-                }
-            }
 
             for (int i = 0; i < armiesCount; i++)
             {
@@ -221,10 +202,21 @@ namespace IntelligentArmy
 
                 bool alliedSoldier = army.TeamID() == 0 && army.armyType == UnitSystem.ArmyType.Default;
                 bool valid = !army.IsInvalid();
-                bool idle = !army.moving && !ArmyAttacking(army);
+                bool idle = !army.moving && ArmyIdle(army);
 
-                if (alliedSoldier && valid && idle && (unit == null || OnSameLandmass(armyPos, unit.GetPos())))
+                // 20% chance of being reassigned regardless of idle or not, if target is not an ogre and soldier squad 
+                // is not returning to original position.
+                bool targetIsOgre = (army.moveTarget != null) && (army.moveTarget is SiegeMonster);
+                bool returning = !originalPos.ContainsKey(army);
+                bool forceReassign = (random.Next(0, 100) < 20) && !targetIsOgre && !returning;
+
+                if (alliedSoldier && valid && (idle || forceReassign))
                 {
+                    IMoveTarget currentTarget = army.moveTarget;
+                    if (currentTarget != null && assignedToViking.ContainsKey(currentTarget))
+                    {
+                        assignedToViking[currentTarget] -= 1;
+                    }
                     AssignTargetToArmyAndMove(army, patrolRadius);
                 }
             }
@@ -236,6 +228,7 @@ namespace IntelligentArmy
             assignedToViking.Clear();
         }
 
+        // General::Tick patch for assigning a target.
         [HarmonyPatch(typeof(General), "Tick")]
         public static class FindTargetPatch
         {
@@ -256,25 +249,8 @@ namespace IntelligentArmy
                 catch {}
             }
         }
-        
-        // TODO: Evaluate further if really needed.
-        /*
-        [HarmonyPatch(typeof(RaiderSystem), "OnOgreArrived")]
-        public static class ReassignOnOgreArrivalPatch
-        {
-            public static void Postfix(IMoveableUnit unit)
-            {
-                // When an ogre arrives, redistribute all the allied soldiers.
-                SiegeMonster ogre = unit as SiegeMonster;
-                if (unit == null)
-                {
-                    return;
-                }
-                ReassignAllArmyOnMoveTargetLandmass(ogre);
-            }
-        }
-        */
 
+        // Patch for tracking ogre on spawn.
         [HarmonyPatch(typeof(RaiderSystem), "SpawnOgre")]
         public static class TrackOgrePatch
         {
@@ -288,6 +264,20 @@ namespace IntelligentArmy
             }
         }
 
+        // Patch for untracking ogre on despawn.
+        [HarmonyPatch(typeof(SiegeMonster), "DestroyUnit")]
+        public static class UntrackOgrePatch
+        {
+            public static void Prefix(SiegeMonster __instance)
+            {
+                if (assignedToViking.ContainsKey(__instance))
+                {
+                    assignedToViking.Remove(__instance);
+                }
+            }
+        }
+
+        // Patch for tracking viking and soldier squad on spawn.
         [HarmonyPatch(typeof(RaiderSystem), "SpawnArmy")]
         public static class TrackVikingArmyPatch
         {
@@ -301,6 +291,7 @@ namespace IntelligentArmy
             }
         }
 
+        // Patch for untracking viking squad on despawn.
         [HarmonyPatch(typeof(UnitSystem), "ReleaseArmy")]
         public static class UntrackArmyPatch
         {
@@ -317,18 +308,7 @@ namespace IntelligentArmy
             }
         }
 
-        [HarmonyPatch(typeof(SiegeMonster), "DestroyUnit")]
-        public static class UntrackOgrePatch
-        {
-            public static void Prefix(SiegeMonster __instance)
-            {
-                if (assignedToViking.ContainsKey(__instance))
-                {
-                    assignedToViking.Remove(__instance);
-                }
-            }
-        }
-
+        // Patch for resetting mod state when loading a new game.
         [HarmonyPatch(typeof(Player), "Reset")]
         public static class ResetModStatePatch
         {
