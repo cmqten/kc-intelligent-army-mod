@@ -30,6 +30,7 @@ namespace IntelligentArmy
         private static Timer timer = new Timer(1f);
 
         // Allied army information
+        private static float patrolRadius = 10f;
         private static Dictionary<UnitSystem.Army, Vector3> originalPos = new Dictionary<UnitSystem.Army, Vector3>();
 
         // Viking army information
@@ -151,16 +152,26 @@ namespace IntelligentArmy
 
         private static void AssignTargetToArmyAndMove(UnitSystem.Army army, float range)
         {
-            // The goal of each army is to patrol an area of radius 10 from its starting point, or its current position
-            // if there are no enemies within its patrol radius.
+            // Soldiers will patrol a radius around its starting point specified by range.
             IMoveTarget target = null;
             if (originalPos.ContainsKey(army))
             {
                 target = GetClosestTarget(originalPos[army], range);
             }
-            if (target == null)
+
+            if (target == null && originalPos.ContainsKey(army))
             {
-                target = GetClosestTarget(army, range);
+                // If there are no targets within the soldier's patrol range, it will try to help out in a radius half
+                // of specified range from its current position, as long as the soldier is still within 1.5x its patrol 
+                // radius. Of course, this doesn't work if the soldier is standing at its original position.
+                if (Mathff.DistSqrdXZ(army.GetPos(), originalPos[army]) < range * 1.5f)
+                {
+                    target = GetClosestTarget(army, range * 0.5f);
+                }
+                else
+                {
+                    target = GetClosestTarget(originalPos[army], range * 1.5f);
+                }
             }
 
             if (target != null && !originalPos.ContainsKey(army))
@@ -214,7 +225,7 @@ namespace IntelligentArmy
 
                 if (alliedSoldier && valid && idle && (unit == null || OnSameLandmass(armyPos, unit.GetPos())))
                 {
-                    AssignTargetToArmyAndMove(army, 10f);
+                    AssignTargetToArmyAndMove(army, patrolRadius);
                 }
             }
         }
@@ -239,7 +250,7 @@ namespace IntelligentArmy
 
                     if (!__instance.army.moving && ArmyIdle(__instance.army))
                     {
-                        AssignTargetToArmyAndMove(__instance.army, 10f);
+                        AssignTargetToArmyAndMove(__instance.army, patrolRadius);
                     }
                 }
                 catch {}
