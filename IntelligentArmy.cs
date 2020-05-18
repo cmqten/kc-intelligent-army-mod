@@ -158,6 +158,38 @@ namespace IntelligentArmy
             return null;
         }
 
+        private static void RecordAssignment(IMoveTarget target)
+        {
+            // By adding a smaller number to every assignment to an ogre, the mod will try to assign more soldiers to 
+            // it.
+            if (target != null && assignedToViking.ContainsKey(target))
+            {
+                if (target is SiegeMonster)
+                {
+                    assignedToViking[target] += ogreAssignPoints;
+                }
+                else if (target is UnitSystem.Army)
+                {
+                    assignedToViking[target] += vikingSquadAssignPoints;
+                }
+            }
+        }
+
+        private static void RemoveAssignment(IMoveTarget target)
+        {
+            if (target != null && assignedToViking.ContainsKey(target))
+            {
+                if (target is SiegeMonster)
+                {
+                    assignedToViking[target] -= ogreAssignPoints;
+                }
+                else if (target is UnitSystem.Army)
+                {
+                    assignedToViking[target] -= vikingSquadAssignPoints;
+                }
+            }
+        }
+
         private static void AssignTargetToArmyAndMove(UnitSystem.Army army, float range)
         {
             if (!originalPos.ContainsKey(army))
@@ -193,14 +225,7 @@ namespace IntelligentArmy
             {
                 // By adding a smaller number to every assignment to an ogre, the mod will try to assign more soldiers
                 // to it.
-                if (target is SiegeMonster)
-                {
-                    assignedToViking[target] += ogreAssignPoints;
-                }
-                else if (target is UnitSystem.Army)
-                {
-                    assignedToViking[target] += vikingSquadAssignPoints;
-                }
+                RecordAssignment(target);
             }
             OrdersManager.inst.MoveTo(army, target);
         }
@@ -228,7 +253,7 @@ namespace IntelligentArmy
                     IMoveTarget currentTarget = army.moveTarget;
                     if (currentTarget != null && assignedToViking.ContainsKey(currentTarget))
                     {
-                        assignedToViking[currentTarget] -= vikingSquadAssignPoints;
+                        RemoveAssignment(currentTarget);
                     }
                     AssignTargetToArmyAndMove(army, settings.patrolRadius.Value);
                 }
@@ -254,6 +279,7 @@ namespace IntelligentArmy
             {
                 return;
             }
+
             // Reassign all soldiers every second.
             if (VikingInvasion() && settings.enabled.Value)
             {
@@ -267,22 +293,18 @@ namespace IntelligentArmy
         {
             public static void Postfix(General __instance)
             {
-                if (!settings.enabled.Value)
+        
+                UnitSystem.Army army = __instance.army;
+                if (!settings.enabled.Value || army.TeamID() != 0 || army.armyType != UnitSystem.ArmyType.Default ||
+                    army.IsInvalid())
                 {
                     return;
                 }
-
-                UnitSystem.Army army = __instance.army;
 
                 if (VikingInvasion())
                 {
                     try
                     {
-                        if (army.TeamID() != 0 || army.armyType != UnitSystem.ArmyType.Default)
-                        {
-                            return;
-                        }
-
                         if (!army.moving && ArmyIdle(army))
                         {
                             if (!originalPos.ContainsKey(army))
@@ -362,17 +384,7 @@ namespace IntelligentArmy
                 if (originalPos.ContainsKey(army))
                 {
                     IMoveTarget target = army.moveTarget;
-                    if (target != null && assignedToViking.ContainsKey(target))
-                    {
-                        if (target is SiegeMonster)
-                        {
-                            assignedToViking[target] -= ogreAssignPoints;
-                        }
-                        else if (target is UnitSystem.Army)
-                        {
-                            assignedToViking[target] -= vikingSquadAssignPoints;
-                        }
-                    }
+                    RemoveAssignment(target);
                     originalPos.Remove(army);
                 }
                 if (assignedToViking.ContainsKey(army))
