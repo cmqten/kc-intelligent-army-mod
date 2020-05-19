@@ -42,7 +42,9 @@ namespace IntelligentArmy
 
         // Viking information
         private const int ogreAssignPoints = 1;
+        private const int minOgreAssignPoints = 2;
         private const int vikingSquadAssignPoints = 2;
+        private const int minVikingSquadAssignPoints = 2;
         private static Dictionary<IMoveTarget, int> assignedToViking = new Dictionary<IMoveTarget, int>();
 
         void Preload(KCModHelper __helper) 
@@ -84,14 +86,8 @@ namespace IntelligentArmy
 
         private static bool ArmyIdle(UnitSystem.Army army)
         {
-            for (int i = 0; i < army.units.Count; i++)
-            {
-                if (army.units.data[i].status != UnitSystem.Unit.Status.Following)
-                {
-                    return false;
-                }
-            }
-            return true;
+            IMoveTarget target = army.moveTarget;
+            return target == null || (!(target is SiegeMonster) && !(target is UnitSystem.Army));
         }
 
         private static bool OnSameLandmass(Vector3 pos1, Vector3 pos2)
@@ -156,6 +152,20 @@ namespace IntelligentArmy
                 return closestViking;
             }
             return null;
+        }
+
+        private static bool AtMinimumAssignment(IMoveTarget target)
+        {
+            if (target != null && assignedToViking.ContainsKey(target))
+            { 
+                int numAssigned = assignedToViking[target];
+                if ((target is SiegeMonster && numAssigned <= minOgreAssignPoints) ||
+                    (target is UnitSystem.Army && numAssigned <= minVikingSquadAssignPoints))
+                {
+                    return true;
+                }
+            }   
+            return false;
         }
 
         private static void RecordAssignment(IMoveTarget target)
@@ -249,11 +259,12 @@ namespace IntelligentArmy
                 bool valid = !army.IsInvalid();
                 bool idle = !army.moving && ArmyIdle(army);
 
-                // 20% chance of being reassigned regardless of idle or not if target is not an ogre.
+                // 40% chance of being reassigned regardless of idle or not if target is not an ogre.
                 bool targetIsOgre = (army.moveTarget != null) && (army.moveTarget is SiegeMonster);
-                bool forceReassign = (random.Next(0, 100) < 20) && !targetIsOgre;
+                bool targetAtMinimumAssignment = AtMinimumAssignment(army.moveTarget);
+                bool forceReassign = (random.Next(0, 100) < 40) && !targetAtMinimumAssignment;
 
-                if (alliedSoldier && valid && (idle || forceReassign))
+                if (alliedSoldier && valid && forceReassign)
                 {
                     IMoveTarget currentTarget = army.moveTarget;
                     if (currentTarget != null && assignedToViking.ContainsKey(currentTarget))
