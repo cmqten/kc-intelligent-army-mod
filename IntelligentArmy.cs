@@ -266,13 +266,6 @@ namespace IntelligentArmy
 
             if (target == null)
             {
-                // If there are no targets within the soldier squads's patrol range, it will try to help out in a radius
-                // of 1.5x its patrol radius.
-                target = GetNextTarget(originalPos[army], range * 1.5f);
-            }
-
-            if (target == null)
-            {
                 // If there are no more targets, return the soldier squad to its original position if it's not already
                 // there.
                 if (originalPos[army] != army.GetPos())
