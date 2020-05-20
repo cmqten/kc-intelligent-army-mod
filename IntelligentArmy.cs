@@ -40,9 +40,9 @@ namespace IntelligentArmy
 
         // Viking information
         private const int ogreAssignPoints = 1;
-        private const int minOgreAssignPoints = 2;
-        private const int vikingSquadAssignPoints = 2;
-        private const int minVikingSquadAssignPoints = 2;
+        private const int minOgreAssignPoints = 3;
+        private const int vikingSquadAssignPoints = 3;
+        private const int minVikingSquadAssignPoints = 3;
         private static Dictionary<IMoveTarget, int> assignedToViking = new Dictionary<IMoveTarget, int>();
 
         void Preload(KCModHelper __helper) 
@@ -99,11 +99,11 @@ namespace IntelligentArmy
         {
             UnitSystem.Army army = target as UnitSystem.Army;
             SiegeMonster ogre = target as SiegeMonster;
-            if (ogre != null && !ogre.IsInvalid())
+            if (ogre != null)
             {
                 return settings.ogres.Value;
             }
-            if (army != null && !army.IsInvalid())
+            if (army != null)
             {
                 if (army.armyType == UnitSystem.ArmyType.Default)
                 {
@@ -115,6 +115,21 @@ namespace IntelligentArmy
                 }
             }   
             return false;
+        }
+
+        private static bool TargetTypeInvalid(IMoveTarget target)
+        {
+            UnitSystem.Army army = target as UnitSystem.Army;
+            SiegeMonster ogre = target as SiegeMonster;
+            if (ogre != null)
+            {
+                return ogre.IsInvalid();
+            }
+            if (army != null)
+            {
+                return army.IsInvalid();
+            }   
+            return true;
         }
 
         private static bool VikingInvasion()
@@ -153,9 +168,9 @@ namespace IntelligentArmy
                     continue;
                 }
 
-                // ogre != null gives ogres priority by disregarding their distance compared to the current closest.
-                if (closestViking == null || ogre != null ||
-                    (closestViking is UnitSystem.Army && army != null && distanceSquared < currentClosestDistance))
+                // Ogres are given priority by letting ogres replace a viking army regardless of distance, and only
+                // letting viking armies replace another viking army.
+                if (closestViking == null || distanceSquared < currentClosestDistance)
                 {
                     closestViking = viking;
                     currentClosestDistance = distanceSquared;
@@ -188,6 +203,21 @@ namespace IntelligentArmy
             }
             return false;
         }
+
+        private static bool LessThanMinimumAssignment(IMoveTarget target)
+        {
+            if (target != null && assignedToViking.ContainsKey(target))
+            { 
+                int numAssigned = assignedToViking[target];
+                if ((target is SiegeMonster && numAssigned < minOgreAssignPoints) ||
+                    (target is UnitSystem.Army && numAssigned < minVikingSquadAssignPoints))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
 
         private static void RecordAssignment(IMoveTarget target)
         {
@@ -235,16 +265,8 @@ namespace IntelligentArmy
             if (target == null)
             {
                 // If there are no targets within the soldier squads's patrol range, it will try to help out in a radius
-                // half of specified range from its current position, as long as it is still within 1.5x its patrol 
-                // radius. Of course, this doesn't work if the soldier squad is standing at its original position.
-                if (Mathff.DistSqrdXZ(army.GetPos(), originalPos[army]) < range * range * 1.5f * 1.5f)
-                {
-                    target = GetClosestTarget(army.GetPos(), range * 0.5f);
-                }
-                else
-                {
-                    target = GetClosestTarget(originalPos[army], range * 1.5f);
-                }
+                // of 1.5x its patrol radius.
+                target = GetClosestTarget(originalPos[army], range * 1.5f);
             }
 
             if (target == null)
@@ -289,15 +311,25 @@ namespace IntelligentArmy
 
                 // Re-assignment heuristic
                 bool targetAtMinimumAssignment = AtMinimumAssignment(target);
-                bool forceReassign = !TargetTypeEnabled(target) || !targetAtMinimumAssignment;
+                bool reassign = !TargetTypeEnabled(target) || TargetTypeInvalid(target) || !targetAtMinimumAssignment;
 
-                if (alliedSoldier && valid && forceReassign)
+                if (alliedSoldier && valid && reassign)
                 {
-                    if (target != null && assignedToViking.ContainsKey(target))
+                    bool targetIsViking = target != null && assignedToViking.ContainsKey(target);
+
+                    // Prevent reassignment to original position, i.e., if there are no enemies within the patrol area, 
+                    // do not reassign from the current enemy. This is to prevent armies from pulling back from an enemy
+                    // if they've gone out of their patrol area.
+                    IMoveTarget newTarget = GetTargetForArmy(army, settings.patrolRadius.Value);
+                    bool newTargetIsViking = newTarget != null && assignedToViking.ContainsKey(newTarget);
+
+                    // First condition prevents chase down of viking boats.
+                    if (TargetTypeInvalid(target) ||
+                        (targetIsViking && newTargetIsViking && LessThanMinimumAssignment(newTarget)))
                     {
                         RemoveAssignment(target);
+                        MoveArmyToTarget(army, newTarget);
                     }
-                    AssignTargetToArmyAndMove(army, settings.patrolRadius.Value);
                 }
             }
         }
