@@ -24,8 +24,6 @@ namespace IntelligentArmy
         private const string version = "v1";
         private static string modId = $"{authorName}.{modNameNoSpace}";
 
-        private static System.Random random = new System.Random();
-
         // Logging
         public static KCModHelper helper;
         private static UInt64 logId = 0;
@@ -97,6 +95,28 @@ namespace IntelligentArmy
             return pos1Landmass == pos2Landmass;
         }
 
+        private static bool TargetTypeEnabled(IMoveTarget target)
+        {
+            UnitSystem.Army army = target as UnitSystem.Army;
+            SiegeMonster ogre = target as SiegeMonster;
+            if (ogre != null)
+            {
+                return settings.ogres.Value;
+            }
+            if (army != null)
+            {
+                if (army.armyType == UnitSystem.ArmyType.Default)
+                {
+                    return settings.defaultViking.Value;
+                }
+                if (army.armyType == UnitSystem.ArmyType.Thief)
+                {
+                    return settings.thieves.Value;
+                }
+            }   
+            return false;
+        }
+
         private static bool VikingInvasion()
         {
             return assignedToViking.Count > 0;
@@ -117,7 +137,8 @@ namespace IntelligentArmy
                 SiegeMonster ogre = viking as SiegeMonster;
                 if ((army == null && ogre == null) ||
                     (army != null && (army.IsInvalid() || !OnSameLandmass(pos, army.GetPos()))) ||
-                    (ogre != null && (ogre.IsInvalid() || !OnSameLandmass(pos, ogre.GetPos()))))
+                    (ogre != null && (ogre.IsInvalid() || !OnSameLandmass(pos, ogre.GetPos()))) ||
+                    !TargetTypeEnabled(viking))
                 {
                     continue;
                 }
@@ -164,7 +185,7 @@ namespace IntelligentArmy
                 {
                     return true;
                 }
-            }   
+            }
             return false;
         }
 
@@ -200,11 +221,11 @@ namespace IntelligentArmy
             }
         }
 
-        private static void AssignTargetToArmyAndMove(UnitSystem.Army army, float range)
+        private static IMoveTarget GetTargetForArmy(UnitSystem.Army army, float range)
         {
             if (!originalPos.ContainsKey(army))
             {
-                return;
+                return null;
             }
 
             // Soldiers will patrol a radius around its starting point specified by range.
@@ -230,19 +251,26 @@ namespace IntelligentArmy
             {
                 // If there are no more targets, return the soldier squad to its original position if it's not already
                 // there.
-                if (originalPos[army] == army.GetPos())
+                if (originalPos[army] != army.GetPos())
                 {
-                    return;
+                    target = World.inst.GetCellData(originalPos[army]);
                 }
-                target = World.inst.GetCellData(originalPos[army]);
             }
-            else
+            return target;
+        }
+
+        public static void MoveArmyToTarget(UnitSystem.Army army, IMoveTarget target)
+        {
+            if (target != null)
             {
-                // By adding a smaller number to every assignment to an ogre, the mod will try to assign more soldiers
-                // to it.
                 RecordAssignment(target);
+                OrdersManager.inst.MoveTo(army, target);
             }
-            OrdersManager.inst.MoveTo(army, target);
+        }
+
+        private static void AssignTargetToArmyAndMove(UnitSystem.Army army, float range)
+        {
+            MoveArmyToTarget(army, GetTargetForArmy(army, range));
         }
         
         // Reassigns some allied soldiers in order to redistribute them.
@@ -257,12 +285,10 @@ namespace IntelligentArmy
 
                 bool alliedSoldier = army.TeamID() == 0 && army.armyType == UnitSystem.ArmyType.Default;
                 bool valid = !army.IsInvalid();
-                bool idle = !army.moving && ArmyIdle(army);
 
-                // 40% chance of being reassigned regardless of idle or not if target is not an ogre.
-                bool targetIsOgre = (army.moveTarget != null) && (army.moveTarget is SiegeMonster);
+                // Re-assignment heuristic
                 bool targetAtMinimumAssignment = AtMinimumAssignment(army.moveTarget);
-                bool forceReassign = (random.Next(0, 100) < 40) && !targetAtMinimumAssignment;
+                bool forceReassign = !TargetTypeEnabled(army.moveTarget) || !targetAtMinimumAssignment;
 
                 if (alliedSoldier && valid && forceReassign)
                 {
@@ -430,6 +456,18 @@ namespace IntelligentArmy
             [Setting("Enabled", "Use AI to control your soldier squads.")]
             [Toggle(true, "")]
             public InteractiveToggleSetting enabled { get; private set; }
+
+            [Setting("Ogres", "Allow targeting of ogres.")]
+            [Toggle(true, "")]
+            public InteractiveToggleSetting ogres { get; private set; }
+
+            [Setting("Kidnappers and Torchers", "Allow targetting of kidnappers and torchers.")]
+            [Toggle(true, "")]
+            public InteractiveToggleSetting defaultViking { get; private set; }
+
+            [Setting("Thieves", "Allow targetting of thieves.")]
+            [Toggle(true, "")]
+            public InteractiveToggleSetting thieves { get; private set; }
 
             [Setting("Patrol Radius", "Patrol radius of each soldier squad from its original position.")]
             [Slider(0, 50, 10, "10", true)]
