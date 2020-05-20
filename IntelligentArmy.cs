@@ -99,11 +99,11 @@ namespace IntelligentArmy
         {
             UnitSystem.Army army = target as UnitSystem.Army;
             SiegeMonster ogre = target as SiegeMonster;
-            if (ogre != null)
+            if (ogre != null && !ogre.IsInvalid())
             {
                 return settings.ogres.Value;
             }
-            if (army != null)
+            if (army != null && !army.IsInvalid())
             {
                 if (army.armyType == UnitSystem.ArmyType.Default)
                 {
@@ -281,21 +281,21 @@ namespace IntelligentArmy
             for (int i = 0; i < armiesCount; i++)
             {
                 UnitSystem.Army army = UnitSystem.inst.GetAmry(i);
+                IMoveTarget target = army.moveTarget;
                 Vector3 armyPos = army.GetPos();
 
                 bool alliedSoldier = army.TeamID() == 0 && army.armyType == UnitSystem.ArmyType.Default;
                 bool valid = !army.IsInvalid();
 
                 // Re-assignment heuristic
-                bool targetAtMinimumAssignment = AtMinimumAssignment(army.moveTarget);
-                bool forceReassign = !TargetTypeEnabled(army.moveTarget) || !targetAtMinimumAssignment;
+                bool targetAtMinimumAssignment = AtMinimumAssignment(target);
+                bool forceReassign = !TargetTypeEnabled(target) || !targetAtMinimumAssignment;
 
                 if (alliedSoldier && valid && forceReassign)
                 {
-                    IMoveTarget currentTarget = army.moveTarget;
-                    if (currentTarget != null && assignedToViking.ContainsKey(currentTarget))
+                    if (target != null && assignedToViking.ContainsKey(target))
                     {
-                        RemoveAssignment(currentTarget);
+                        RemoveAssignment(target);
                     }
                     AssignTargetToArmyAndMove(army, settings.patrolRadius.Value);
                 }
