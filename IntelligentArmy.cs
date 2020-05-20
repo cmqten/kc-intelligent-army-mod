@@ -192,6 +192,23 @@ namespace IntelligentArmy
             return null;
         }
 
+        private static int PointsToSoldiers(IMoveTarget target)
+        {
+            if (target != null && enemyAssignments.ContainsKey(target))
+            {
+                int points = enemyAssignments[target];
+                if (target is SiegeMonster)
+                {
+                    return (points - ogreStartPoints) / ogreAssignPoints;
+                }
+                else if (target is UnitSystem.Army)
+                {
+                    return (points - vikingStartPoints) / vikingAssignPoints;
+                }
+            }
+            return -1;
+        }
+
         private static bool AtMinimumAssignment(IMoveTarget target)
         {
             if (target != null && enemyAssignments.ContainsKey(target))
@@ -280,11 +297,6 @@ namespace IntelligentArmy
         {
             if (target != null)
             {
-                if (army.moveTarget != null)
-                {
-                    RemoveAssignment(army.moveTarget);
-                }
-                RecordAssignment(target);
                 OrdersManager.inst.MoveTo(army, target);
             }
         }
@@ -416,6 +428,28 @@ namespace IntelligentArmy
                         }
                         originalPos.Remove(army);
                     }
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(OrdersManager), "MoveTo")]
+        public static class TrackTargetAssignmentPatch
+        {
+            public static void Prefix(IMoveableUnit moveableUnit, IMoveTarget moveTarget)
+            {
+                UnitSystem.Army army = moveableUnit as UnitSystem.Army;
+                if (army != null && army.TeamID() == 0 && army.armyType == UnitSystem.ArmyType.Default &&
+                    !army.IsInvalid())
+                {
+                    if (moveTarget != null && !(moveTarget is SiegeMonster) && !(moveTarget is UnitSystem.Army) &&
+                        VikingInvasion())
+                    {
+                        originalPos[army] = moveTarget.GetPos();
+                    }
+                    string armyType = army.armyType.ToString();
+
+                    RemoveAssignment(army.moveTarget);
+                    RecordAssignment(moveTarget);
                 }
             }
         }
