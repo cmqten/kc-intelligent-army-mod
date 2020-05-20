@@ -2,8 +2,8 @@
 Automatically assigns targets to allied soldier squads.
 
 Author: cmjten10
-Mod Version: 1
-Date: 2020-05-17
+Mod Version: 1.1
+Date: 2020-05-19
 */
 using Harmony;
 using System;
